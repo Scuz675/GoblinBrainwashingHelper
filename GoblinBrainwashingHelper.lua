@@ -9,6 +9,86 @@ local editBoxTable = {}
 local specSwatchTable = {}
 local numOptions
 local gossipTitleButtonPoint, gossipTitleButtonRelativeTo, gossipTitleButtonRelativePoint, gossipTitleButtonX, gossipTitleButtonY
+local gbhPendingEquipSpec = nil
+local gbhEquipDelay = nil
+
+local function GBH_FindOutfitByName(outfitName)
+    if not outfitName or outfitName == "" then
+        return nil, nil
+    end
+
+    if type(Outfitter_FindOutfitByName) == "function" then
+        return Outfitter_FindOutfitByName(outfitName)
+    end
+
+    return nil, nil
+end
+
+local function GBH_EquipOutfitForSpec(specNum)
+    if not specNum or not helperNameAndColor or not helperNameAndColor[specNum] then
+        return
+    end
+
+    if type(Outfitter_WearOutfit) ~= "function" then
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff4040GoblinBrainwashingHelper:|r Outfitter not loaded")
+        return
+    end
+
+    local outfitName = helperNameAndColor[specNum].name
+    if not outfitName or outfitName == "" then
+        return
+    end
+
+    local outfit, categoryID = GBH_FindOutfitByName(outfitName)
+    if outfit then
+        Outfitter_WearOutfit(outfit, categoryID)
+    else
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff4040GoblinBrainwashingHelper:|r Outfitter set not found: " .. outfitName)
+    end
+end
+
+local function GBH_QueueEquipSpec(specNum, delay)
+    gbhPendingEquipSpec = specNum
+    gbhEquipDelay = delay or 0.2
+    frame:SetScript("OnUpdate", function()
+        gbhEquipDelay = gbhEquipDelay - arg1
+        if gbhEquipDelay <= 0 then
+            frame:SetScript("OnUpdate", nil)
+            local specToEquip = gbhPendingEquipSpec
+            gbhPendingEquipSpec = nil
+            GBH_EquipOutfitForSpec(specToEquip)
+        end
+    end)
+end
+
+local function GBH_HookSpecButton(gossipButton, specNum)
+    if not gossipButton or not specNum then
+        return
+    end
+
+    if gossipButton.gbhOriginalOnClick == nil then
+        gossipButton.gbhOriginalOnClick = gossipButton:GetScript("OnClick")
+    end
+
+    gossipButton.gbhSpecNum = specNum
+    gossipButton:SetScript("OnClick", function()
+        GBH_QueueEquipSpec(this.gbhSpecNum, 0.2)
+        if this.gbhOriginalOnClick then
+            this.gbhOriginalOnClick()
+        end
+    end)
+end
+
+local function GBH_UnhookSpecButton(gossipButton)
+    if not gossipButton then
+        return
+    end
+
+    if gossipButton.gbhOriginalOnClick ~= nil then
+        gossipButton:SetScript("OnClick", gossipButton.gbhOriginalOnClick)
+    end
+    gossipButton.gbhSpecNum = nil
+end
 
 --'hides' "Activate ??? Specialization" and replaces it with custom text
 local function hideAndReplaceSpec(gossipButton, specNameAndColor, originalGossipText)
@@ -96,7 +176,12 @@ local function updateGossipOptions()
                     if specNameAndColor and specNameAndColor.name ~= "" then
                         hideAndReplaceSpec(gossipButton, specNameAndColor, originalGossipText)
                     end
+                    GBH_HookSpecButton(gossipButton, specNum)
+                else
+                    GBH_UnhookSpecButton(gossipButton)
                 end
+            else
+                GBH_UnhookSpecButton(gossipButton)
             end
         end
     end
@@ -323,6 +408,7 @@ frame:SetScript("OnEvent", function()
 				local gossipButton = getglobal("GossipTitleButton" .. j)
 				if not gossipButton then break end
 				resetGossipText(gossipButton)
+                GBH_UnhookSpecButton(gossipButton)
 			end
 			--revert movement of GossipTitleButtons
 			GossipTitleButton1:ClearAllPoints()
